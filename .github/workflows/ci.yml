@@ -1,0 +1,38 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync
+      - run: uv run ruff check src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run pytest
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: docker compose -f tests/compose.yml up -d --wait
+      - run: uv sync
+      - name: wait for Chroma
+        run: |
+          for p in 18004 18006 18100; do
+            for i in $(seq 1 60); do
+              curl -sf localhost:$p/api/v2/heartbeat >/dev/null || curl -sf localhost:$p/api/v1/heartbeat >/dev/null && break
+              sleep 1
+            done
+          done
+      - run: uv run pytest -m integration -v
